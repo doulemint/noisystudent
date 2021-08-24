@@ -347,6 +347,8 @@ def model_fn(features, mode, params):
 
   image_shape = image.get_shape().as_list()
   tf.logging.info('image shape: {}'.format(image_shape))
+
+  #mode 参数表示调用程序是请求训练、评估还是预测，分别通过tf.estimator.ModeKeys.TRAIN / EVAL / PREDICT 来定义
   is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
   if mode != tf.estimator.ModeKeys.PREDICT:
@@ -402,6 +404,7 @@ def model_fn(features, mode, params):
       scope = scope + '/'
     else:
       scope = ''
+    #在 tf.variable_scope()的作用域下使用 tf.get_variable() 这种方式产生和提取变量.它会单纯的提取这个同样名字的变量
     with tf.variable_scope(scope + scope_model_name, reuse=reuse):
       if model_name.startswith('efficientnet'):
         logits, _ = efficientnet_builder.build_model(
@@ -450,9 +453,12 @@ def model_fn(features, mode, params):
 
   if mode == tf.estimator.ModeKeys.PREDICT:
     if has_moving_average_decay:
+      #更新参数，就是采用滑动平均的方法更新参数
       ema = tf.train.ExponentialMovingAverage(
           decay=FLAGS.moving_average_decay)
       ema_vars = utils.get_all_variable()
+      #variables_to_restore为了在保持模型的时候方便使用滑动平均的参数，如果不使用这个保存，那模型就会保存所有参数
+      #可以使在加载模型的时候将影子变量直接映射到变量的本身，所以我们在获取变量的滑动平均值的时候只需要获取到变量的本身值而不需要去获取影子变量
       restore_vars_dict = ema.variables_to_restore(ema_vars)
       tf.logging.info('restored variables:\n%s',
                       json.dumps(sorted(restore_vars_dict.keys()), indent=4))
@@ -461,6 +467,7 @@ def model_fn(features, mode, params):
         'classes': tf.argmax(logits, axis=1),
         'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
     }
+    #model_fn需要对于不同的模式提供不同的处理方式，并且都需要返回一个tf.estimator.EstimatorSpec的实例
     return tf.estimator.tpu.TPUEstimatorSpec(
         mode=mode,
         predictions=predictions,
@@ -492,6 +499,7 @@ def model_fn(features, mode, params):
     unl_pred = tf.argmax(unl_logits, axis=-1, output_type=labels.dtype)
     unl_prob = tf.nn.softmax(unl_logits)
     unl_acc = tf.to_float(tf.equal(unl_pred, unl_labels))
+    #dump的acc
     metric_dict['unl/acc_to_dump'] = tf.reduce_mean(unl_acc)
     metric_dict['unl/pred_prob'] = tf.reduce_mean(
         tf.reduce_max(unl_prob, axis=-1)
@@ -518,6 +526,7 @@ def model_fn(features, mode, params):
     if FLAGS.teacher_softmax_temp == -1:  # Hard labels
       # Get one-hot labels
       if FLAGS.teacher_model_name:
+        #pesudo-label
         ext_teacher_pred = teacher_one_hot_pred[lab_bsz:]
         one_hot_labels = tf.one_hot(ext_teacher_pred, FLAGS.num_label_classes)
       else:
@@ -593,6 +602,7 @@ def model_fn(features, mode, params):
 
     # Batch normalization requires UPDATE_OPS to be added as a dependency to
     # the train operation.
+    # 从一个集合中取出变量
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     tvars = tf.trainable_variables()
     g_vars = []
